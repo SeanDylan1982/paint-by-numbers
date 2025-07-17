@@ -101,7 +101,7 @@ export class AIProcessorService {
 
   private async processWithFlux(dataUrl: string): Promise<string> {
     const response = await fetch(
-      "https://router.huggingface.co/fal-ai/fal-ai/flux-kontext/dev?_subdomain=queue",
+      "https://router.huggingface.co/replicate/v1/models/black-forest-labs/flux-kontext-dev/predictions",
       {
         headers: {
           Authorization: `Bearer ${this.hfToken}`,
