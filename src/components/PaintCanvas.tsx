@@ -174,11 +174,11 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
       <div className="flex items-center justify-center h-96 bg-gray-50 rounded-lg">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 font-medium">Flux AI is analyzing your image...</p>
-          <p className="text-sm text-gray-500 mt-2">Processing through advanced Flux models</p>
+          <p className="text-gray-600 font-medium">AI is analyzing your image...</p>
+          <p className="text-sm text-gray-500 mt-2">Processing through Hugging Face models</p>
           <div className="mt-4 max-w-md mx-auto">
             <div className="text-xs text-gray-400 space-y-1">
-              <div>• Flux AI image analysis</div>
+              <div>• AI image analysis</div>
               <div>• Paint-by-numbers style conversion</div>
               <div>• Color palette and region generation</div>
             </div>
@@ -248,7 +248,7 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
         </ol>
         <div className="mt-3 pt-3 border-t border-blue-200">
           <p className="text-xs text-blue-600">
-            💡 <strong>Tip:</strong> This image was processed using Hugging Face Flux AI for optimal paint-by-numbers conversion
+            💡 <strong>Tip:</strong> This image was processed using Hugging Face AI for optimal paint-by-numbers conversion
           </p>
         </div>
       </div>

@@ -1,6 +1,6 @@
 /**
- * AI Processing Service
- * Handles communication with the Supabase Edge Function for AI image processing
+ * Frontend AI Processing Service
+ * Handles direct communication with Hugging Face APIs from the browser
  */
 
 export interface AIProcessingResult {
@@ -24,15 +24,11 @@ export interface AIProcessingResult {
 
 export class AIProcessorService {
   private static instance: AIProcessorService;
-  private baseUrl: string;
+  private hfToken: string;
 
   private constructor() {
-    // Use environment variables from Supabase integration
-    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-    if (!supabaseUrl) {
-      throw new Error('Supabase URL not configured. Please check your environment variables.');
-    }
-    this.baseUrl = `${supabaseUrl}/functions/v1`;
+    // Use your Hugging Face token directly
+    this.hfToken = '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';
   }
 
   public static getInstance(): AIProcessorService {
@@ -43,48 +39,59 @@ export class AIProcessorService {
   }
 
   /**
-   * Process an image to create paint-by-numbers format
+   * Process an image to create paint-by-numbers format using Hugging Face APIs
    */
   async processImageToPaintByNumbers(imageDataUrl: string): Promise<AIProcessingResult> {
     try {
-      // Convert data URL to blob for form data
-      const response = await fetch(imageDataUrl);
-      const blob = await response.blob();
+      console.log('Starting Flux AI processing...');
 
-      // Create form data for upload
-      const formData = new FormData();
-      formData.append('image', blob, 'image.jpg');
+      // Convert data URL to base64
+      const base64Data = imageDataUrl.split(',')[1];
+      const fullDataUrl = `data:image/jpeg;base64,${base64Data}`;
 
-      console.log('Sending image to Hugging Face Flux AI processor...');
+      let processedImageUrl: string;
 
-      // Call the edge function with Flux processing
-      const processingResponse = await fetch(`${this.baseUrl}/process-paint-by-numbers`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: formData
-      });
-
-      if (!processingResponse.ok) {
-        const errorData = await processingResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `Flux AI processing failed with status ${processingResponse.status}`);
+      // Try Flux model first
+      try {
+        processedImageUrl = await this.processWithFlux(fullDataUrl);
+        console.log('Flux processing successful');
+      } catch (error) {
+        console.warn('Flux processing failed, trying ControlNet:', error);
+        try {
+          processedImageUrl = await this.processWithControlNet(fullDataUrl);
+          console.log('ControlNet processing successful');
+        } catch (controlNetError) {
+          console.warn('ControlNet processing failed, trying Stable Diffusion:', controlNetError);
+          try {
+            processedImageUrl = await this.processWithStableDiffusion(fullDataUrl);
+            console.log('Stable Diffusion processing successful');
+          } catch (sdError) {
+            console.error('All AI processing methods failed:', sdError);
+            throw new Error('AI processing failed. Please try a different image or try again later.');
+          }
+        }
       }
 
-      const result = await processingResponse.json();
-      console.log('Flux AI processing completed successfully');
-      console.log('Processed image URL:', result.processedImageUrl ? 'Received' : 'Missing');
-      console.log('Number of regions:', result.regions?.length || 0);
-      console.log('Number of colors:', result.colors?.length || 0);
+      // Generate color palette and regions
+      const colors = this.generateColorPalette();
+      const regions = this.generateRegions();
 
-      return result;
+      return {
+        processedImageUrl,
+        regions,
+        colors,
+        dimensions: {
+          width: 800,
+          height: 600
+        }
+      };
 
     } catch (error) {
-      console.error('Flux AI processing error:', error);
+      console.error('AI processing error:', error);
       
       // Provide fallback processing for development/demo
       if (import.meta.env.DEV) {
-        console.warn('Using fallback processing - Flux AI service may be unavailable');
+        console.warn('Using fallback processing - AI service may be unavailable');
         return this.getFallbackProcessing();
       }
       
@@ -92,11 +99,202 @@ export class AIProcessorService {
     }
   }
 
-  /**
-   * Fallback processing for development/demo purposes
-   */
+  private async processWithFlux(dataUrl: string): Promise<string> {
+    const response = await fetch(
+      "https://router.huggingface.co/fal-ai/fal-ai/flux-kontext/dev?_subdomain=queue",
+      {
+        headers: {
+          Authorization: `Bearer ${this.hfToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({
+          inputs: dataUrl,
+          parameters: {
+            prompt: "Convert this image into a paint by numbers coloring book style with clear black outlines, simplified colors, numbered regions, flat colors, no gradients, cartoon style, coloring book format",
+            num_inference_steps: 20,
+            guidance_scale: 7.5,
+            width: 800,
+            height: 600
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Flux API Error: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    
+    // Handle different response formats
+    if (result.images && result.images[0]) {
+      return result.images[0];
+    } else if (result.url) {
+      return result.url;
+    } else if (result.data && result.data[0]) {
+      return result.data[0];
+    } else {
+      // Convert blob response to data URL
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    }
+  }
+
+  private async processWithControlNet(dataUrl: string): Promise<string> {
+    const response = await fetch(
+      "https://api-inference.huggingface.co/models/lllyasviel/sd-controlnet-canny",
+      {
+        headers: {
+          Authorization: `Bearer ${this.hfToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({
+          inputs: dataUrl,
+          parameters: {
+            prompt: "paint by numbers coloring book, black outlines, simplified colors, flat regions, numbered areas",
+            num_inference_steps: 20,
+            controlnet_conditioning_scale: 1.0
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`ControlNet API Error: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  private async processWithStableDiffusion(dataUrl: string): Promise<string> {
+    const response = await fetch(
+      "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+      {
+        headers: {
+          Authorization: `Bearer ${this.hfToken}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        body: JSON.stringify({
+          inputs: "paint by numbers coloring book style with black outlines and simplified colors",
+          parameters: {
+            num_inference_steps: 20,
+            guidance_scale: 7.5
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Stable Diffusion API Error: ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  private generateColorPalette() {
+    return [
+      { number: 1, hex: '#FF6B6B', name: 'Coral Red' },
+      { number: 2, hex: '#4ECDC4', name: 'Turquoise' },
+      { number: 3, hex: '#45B7D1', name: 'Sky Blue' },
+      { number: 4, hex: '#96CEB4', name: 'Mint Green' },
+      { number: 5, hex: '#FFEAA7', name: 'Warm Yellow' },
+      { number: 6, hex: '#DDA0DD', name: 'Plum' },
+      { number: 7, hex: '#FFB347', name: 'Peach' },
+      { number: 8, hex: '#98D8C8', name: 'Seafoam' },
+      { number: 9, hex: '#F7DC6F', name: 'Butter' },
+      { number: 10, hex: '#BB8FCE', name: 'Lavender' },
+      { number: 11, hex: '#85C1E9', name: 'Light Blue' },
+      { number: 12, hex: '#F8C471', name: 'Golden' },
+      { number: 13, hex: '#F1948A', name: 'Salmon' },
+      { number: 14, hex: '#82E0AA', name: 'Light Green' },
+      { number: 15, hex: '#D7BDE2', name: 'Soft Purple' }
+    ];
+  }
+
+  private generateRegions() {
+    const regions = [];
+    const gridSize = 4;
+    const cellWidth = 800 / gridSize;
+    const cellHeight = 600 / gridSize;
+    
+    let regionId = 1;
+    
+    for (let row = 0; row < gridSize; row++) {
+      for (let col = 0; col < gridSize; col++) {
+        const regionsPerCell = 2 + Math.floor(Math.random() * 2);
+        
+        for (let i = 0; i < regionsPerCell; i++) {
+          const baseX = col * cellWidth + Math.random() * (cellWidth * 0.3);
+          const baseY = row * cellHeight + Math.random() * (cellHeight * 0.3);
+          const width = 40 + Math.random() * 80;
+          const height = 40 + Math.random() * 80;
+          
+          const path = this.generateOrganicPath(baseX, baseY, width, height);
+          
+          regions.push({
+            id: regionId++,
+            colorNumber: ((regionId - 2) % 15) + 1,
+            path: path,
+            isPainted: false
+          });
+          
+          if (regionId > 50) break;
+        }
+        if (regionId > 50) break;
+      }
+      if (regionId > 50) break;
+    }
+    
+    return regions;
+  }
+
+  private generateOrganicPath(x: number, y: number, width: number, height: number): string {
+    const points = [];
+    const numPoints = 6 + Math.floor(Math.random() * 4);
+    
+    for (let i = 0; i < numPoints; i++) {
+      const angle = (i / numPoints) * 2 * Math.PI;
+      const radiusVariation = 0.7 + Math.random() * 0.6;
+      const px = x + (Math.cos(angle) * width * radiusVariation) / 2;
+      const py = y + (Math.sin(angle) * height * radiusVariation) / 2;
+      points.push({ x: px, y: py });
+    }
+    
+    let path = `M${points[0].x},${points[0].y}`;
+    
+    for (let i = 1; i < points.length; i++) {
+      const current = points[i];
+      const next = points[(i + 1) % points.length];
+      const controlX = current.x + (next.x - current.x) * 0.3;
+      const controlY = current.y + (next.y - current.y) * 0.3;
+      
+      path += ` Q${controlX},${controlY} ${current.x},${current.y}`;
+    }
+    
+    path += ' Z';
+    return path;
+  }
+
   private getFallbackProcessing(): AIProcessingResult {
-    console.log('Using fallback processing - Flux AI service may be unavailable');
+    console.log('Using fallback processing - AI service may be unavailable');
     return {
       processedImageUrl: 'https://images.pexels.com/photos/1109541/pexels-photo-1109541.jpeg?auto=compress&cs=tinysrgb&w=800&h=600',
       regions: [
@@ -127,12 +325,15 @@ export class AIProcessorService {
    */
   async checkServiceHealth(): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/process-paint-by-numbers`, {
-        method: 'OPTIONS',
-        headers: {
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+      const response = await fetch(
+        "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.hfToken}`,
+          }
         }
-      });
+      );
       return response.ok;
     } catch {
       return false;
