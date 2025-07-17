@@ -47,7 +47,7 @@ export class AIProcessorService {
    */
   async processImageToPaintByNumbers(imageDataUrl: string): Promise<AIProcessingResult> {
     try {
-      // Convert data URL to blob
+      // Convert data URL to blob for form data
       const response = await fetch(imageDataUrl);
       const blob = await response.blob();
 
@@ -55,9 +55,9 @@ export class AIProcessorService {
       const formData = new FormData();
       formData.append('image', blob, 'image.jpg');
 
-      console.log('Sending image to AI processor...');
+      console.log('Sending image to Hugging Face Flux AI processor...');
 
-      // Call the edge function
+      // Call the edge function with Flux processing
       const processingResponse = await fetch(`${this.baseUrl}/process-paint-by-numbers`, {
         method: 'POST',
         headers: {
@@ -68,11 +68,11 @@ export class AIProcessorService {
 
       if (!processingResponse.ok) {
         const errorData = await processingResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `Processing failed with status ${processingResponse.status}`);
+        throw new Error(errorData.error || `Flux AI processing failed with status ${processingResponse.status}`);
       }
 
       const result = await processingResponse.json();
-      console.log('AI processing completed successfully');
+      console.log('Flux AI processing completed successfully');
       console.log('Processed image URL:', result.processedImageUrl ? 'Received' : 'Missing');
       console.log('Number of regions:', result.regions?.length || 0);
       console.log('Number of colors:', result.colors?.length || 0);
@@ -80,11 +80,11 @@ export class AIProcessorService {
       return result;
 
     } catch (error) {
-      console.error('AI processing error:', error);
+      console.error('Flux AI processing error:', error);
       
       // Provide fallback processing for development/demo
       if (import.meta.env.DEV) {
-        console.warn('Using fallback processing for development');
+        console.warn('Using fallback processing - Flux AI service may be unavailable');
         return this.getFallbackProcessing();
       }
       
@@ -96,7 +96,7 @@ export class AIProcessorService {
    * Fallback processing for development/demo purposes
    */
   private getFallbackProcessing(): AIProcessingResult {
-    console.log('Using fallback processing - AI service may be unavailable');
+    console.log('Using fallback processing - Flux AI service may be unavailable');
     return {
       processedImageUrl: 'https://images.pexels.com/photos/1109541/pexels-photo-1109541.jpeg?auto=compress&cs=tinysrgb&w=800&h=600',
       regions: [
