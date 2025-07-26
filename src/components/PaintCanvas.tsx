@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { PaintByNumbersData } from '../types/paintByNumbers';
 
 interface PaintCanvasProps {
@@ -9,6 +9,7 @@ interface PaintCanvasProps {
   brushSize: number;
   isProcessing: boolean;
   processingError: string | null;
+  onColorSelect?: (color: string, colorNumber: number) => void;
 }
 
 const PaintCanvas: React.FC<PaintCanvasProps> = ({
@@ -18,45 +19,38 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
   selectedColorNumber,
   brushSize,
   isProcessing,
-  processingError
+  processingError,
+  onColorSelect
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isPainting, setIsPainting] = useState(false);
   const [showNumbers, setShowNumbers] = useState(true);
 
-  useEffect(() => {
-    if (paintByNumbersData && canvasRef.current) {
-      drawPaintByNumbers();
-    }
-  }, [paintByNumbersData, showNumbers]);
-
-  const drawPaintByNumbers = () => {
-    const canvas = canvasRef.current;
-    if (!canvas || !paintByNumbersData) return;
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Set canvas size
-    canvas.width = paintByNumbersData.dimensions.width;
-    canvas.height = paintByNumbersData.dimensions.height;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw the AI-processed paint-by-numbers image as background
-    const processedImg = new Image();
-    processedImg.onload = () => {
-      // Draw the processed paint-by-numbers image
-      ctx.drawImage(processedImg, 0, 0, canvas.width, canvas.height);
-      
-      // Draw regions and numbers on top
-      drawRegionsAndNumbers(ctx);
+  // Helper function to calculate bounds of a path
+  const getPathBounds = (pathString: string) => {
+    // Simple bounds calculation for SVG path
+    // Extract numbers from path string
+    const numbers = pathString.match(/[\d.]+/g)?.map(Number) || [];
+    if (numbers.length < 4) return { x: 0, y: 0, width: 100, height: 100 };
+    
+    const xCoords = numbers.filter((_, i) => i % 2 === 0);
+    const yCoords = numbers.filter((_, i) => i % 2 === 1);
+    
+    const minX = Math.min(...xCoords);
+    const maxX = Math.max(...xCoords);
+    const minY = Math.min(...yCoords);
+    const maxY = Math.max(...yCoords);
+    
+    return {
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY
     };
-    processedImg.src = paintByNumbersData.processedImageUrl || originalImage;
   };
 
-  const drawRegionsAndNumbers = (ctx: CanvasRenderingContext2D) => {
+  // Function to draw regions and numbers
+  const drawRegionsAndNumbers = React.useCallback((ctx: CanvasRenderingContext2D) => {
     if (!paintByNumbersData) return;
 
     paintByNumbersData.regions.forEach(region => {
@@ -95,46 +89,48 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
         ctx.fillText(region.colorNumber.toString(), centerX, centerY);
       }
     });
-  };
+  }, [paintByNumbersData, showNumbers]);
 
-  const getPathBounds = (pathString: string) => {
-    // Simple bounds calculation for SVG path
-    // Extract numbers from path string
-    const numbers = pathString.match(/[\d.]+/g)?.map(Number) || [];
-    if (numbers.length < 4) return { x: 0, y: 0, width: 100, height: 100 };
-    
-    const xCoords = numbers.filter((_, i) => i % 2 === 0);
-    const yCoords = numbers.filter((_, i) => i % 2 === 1);
-    
-    const minX = Math.min(...xCoords);
-    const maxX = Math.max(...xCoords);
-    const minY = Math.min(...yCoords);
-    const maxY = Math.max(...yCoords);
-    
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
+  // Main function to draw the paint by numbers canvas
+  const drawPaintByNumbers = React.useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !paintByNumbersData) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size
+    canvas.width = paintByNumbersData.dimensions.width;
+    canvas.height = paintByNumbersData.dimensions.height;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw the AI-processed paint-by-numbers image as background
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      // Draw the processed paint-by-numbers image
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      
+      // Draw regions and numbers on top
+      drawRegionsAndNumbers(ctx);
     };
-  };
+    img.onerror = (e) => {
+      console.error('Error loading image:', e);
+    };
+    img.src = originalImage; // Use the original image since we'll draw regions on top
+  }, [paintByNumbersData, originalImage, drawRegionsAndNumbers]);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!paintByNumbersData) return;
-    setIsPainting(true);
-    paint(e);
-  };
+  // Effect to redraw when dependencies change
+  useEffect(() => {
+    if (paintByNumbersData && canvasRef.current) {
+      drawPaintByNumbers();
+    }
+  }, [paintByNumbersData, showNumbers, drawPaintByNumbers]);
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isPainting || !paintByNumbersData) return;
-    paint(e);
-  };
-
-  const handleMouseUp = () => {
-    setIsPainting(false);
-  };
-
-  const paint = (e: React.MouseEvent) => {
+  // Mouse event handlers for painting
+  const paint = useCallback((e: React.MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas || !paintByNumbersData) return;
 
@@ -153,13 +149,18 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
       return ctx.isPointInPath(path2D, x, y);
     });
 
-    if (clickedRegion && clickedRegion.colorNumber === selectedColorNumber) {
-      // Paint the region if it matches the selected color
-      clickedRegion.isPainted = true;
-      drawPaintByNumbers(); // Redraw canvas
-    } else if (clickedRegion) {
-      // Show feedback for wrong color
-      console.log(`Wrong color! This region needs color ${clickedRegion.colorNumber}, but you selected ${selectedColorNumber}`);
+    if (clickedRegion) {
+      if (clickedRegion.colorNumber === selectedColorNumber) {
+        // Paint the region if it matches the selected color
+        clickedRegion.isPainted = true;
+        drawPaintByNumbers(); // Redraw canvas
+      } else if (onColorSelect) {
+        // If wrong color, select the correct color for the region
+        const correctColor = paintByNumbersData.colors.find(c => c.number === clickedRegion.colorNumber);
+        if (correctColor) {
+          onColorSelect(correctColor.hex, clickedRegion.colorNumber);
+        }
+      }
     } else {
       // Free painting mode - paint with brush
       ctx.beginPath();
@@ -167,7 +168,24 @@ const PaintCanvas: React.FC<PaintCanvasProps> = ({
       ctx.fillStyle = selectedColor;
       ctx.fill();
     }
-  };
+  }, [paintByNumbersData, selectedColorNumber, selectedColor, brushSize, onColorSelect, drawPaintByNumbers]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (!paintByNumbersData) return;
+    setIsPainting(true);
+    paint(e);
+  }, [paintByNumbersData, paint]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPainting || !paintByNumbersData) return;
+    paint(e);
+  }, [isPainting, paintByNumbersData, paint]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsPainting(false);
+  }, []);
+
+
 
   if (isProcessing) {
     return (
