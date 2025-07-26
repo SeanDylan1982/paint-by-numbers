@@ -80,19 +80,19 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload }) => {
           
           <div>
             <h3 className="text-xl font-semibold text-gray-800 mb-2">
-              Upload Your Image for AI Processing
+              Upload Your Image for Flux AI Processing
             </h3>
             <p className="text-gray-600 mb-4">
-              Our AI will convert your image into a beautiful paint-by-numbers template
+              Our advanced Flux AI will convert your image into a beautiful paint-by-numbers template
             </p>
             <button className="inline-flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-lg hover:from-purple-700 hover:to-blue-700 transition-all">
               <ImageIcon className="w-5 h-5" />
-              <span>Choose Image for AI Processing</span>
+              <span>Choose Image for Flux AI Processing</span>
             </button>
           </div>
           
           <div className="text-sm text-gray-500">
-            Supports JPG, PNG, and GIF files up to 10MB • Processed by Hugging Face AI
+            Supports JPG, PNG, and GIF files up to 10MB • Processed by Hugging Face Flux AI
           </div>
         </div>
       </div>
@@ -100,7 +100,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ onImageUpload }) => {
       {/* Example Images */}
       <div className="mt-8">
         <h4 className="text-lg font-medium text-gray-800 mb-4 text-center">
-          Or try one of these examples for AI processing:
+          Or try one of these examples for Flux AI processing:
         </h4>
         <div className="grid grid-cols-3 gap-4">
           {[

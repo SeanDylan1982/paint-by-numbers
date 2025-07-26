@@ -1,6 +1,6 @@
 /**
- * Frontend AI Processing Service
- * Handles direct communication with Hugging Face APIs from the browser
+ * AI Processing Service
+ * Handles communication with the Supabase Edge Function for AI image processing
  */
 
 export interface AIProcessingResult {
@@ -24,11 +24,15 @@ export interface AIProcessingResult {
 
 export class AIProcessorService {
   private static instance: AIProcessorService;
-  private hfToken: string;
+  private baseUrl: string;
 
   private constructor() {
-    // Use your Hugging Face token directly
-    this.hfToken = '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';
+    // Use environment variables from Supabase integration
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!supabaseUrl) {
+      throw new Error('Supabase URL not configured. Please check your environment variables.');
+    }
+    this.baseUrl = `${supabaseUrl}/functions/v1`;
   }
 
   public static getInstance(): AIProcessorService {
@@ -39,59 +43,48 @@ export class AIProcessorService {
   }
 
   /**
-   * Process an image to create paint-by-numbers format using Hugging Face APIs
+   * Process an image to create paint-by-numbers format
    */
   async processImageToPaintByNumbers(imageDataUrl: string): Promise<AIProcessingResult> {
     try {
-      console.log('Starting Flux AI processing...');
+      // Convert data URL to blob for form data
+      const response = await fetch(imageDataUrl);
+      const blob = await response.blob();
 
-      // Convert data URL to base64
-      const base64Data = imageDataUrl.split(',')[1];
-      const fullDataUrl = `data:image/jpeg;base64,${base64Data}`;
+      // Create form data for upload
+      const formData = new FormData();
+      formData.append('image', blob, 'image.jpg');
 
-      let processedImageUrl: string;
+      console.log('Sending image to Hugging Face Flux AI processor...');
 
-      // Try Flux model first
-      try {
-        processedImageUrl = await this.processWithFlux(fullDataUrl);
-        console.log('Flux processing successful');
-      } catch (error) {
-        console.warn('Flux processing failed, trying ControlNet:', error);
-        try {
-          processedImageUrl = await this.processWithControlNet(fullDataUrl);
-          console.log('ControlNet processing successful');
-        } catch (controlNetError) {
-          console.warn('ControlNet processing failed, trying Stable Diffusion:', controlNetError);
-          try {
-            processedImageUrl = await this.processWithStableDiffusion(fullDataUrl);
-            console.log('Stable Diffusion processing successful');
-          } catch (sdError) {
-            console.error('All AI processing methods failed:', sdError);
-            throw new Error('AI processing failed. Please try a different image or try again later.');
-          }
-        }
+      // Call the edge function with Flux processing
+      const processingResponse = await fetch(`${this.baseUrl}/process-paint-by-numbers`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+        },
+        body: formData
+      });
+
+      if (!processingResponse.ok) {
+        const errorData = await processingResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Flux AI processing failed with status ${processingResponse.status}`);
       }
 
-      // Generate color palette and regions
-      const colors = this.generateColorPalette();
-      const regions = this.generateRegions();
+      const result = await processingResponse.json();
+      console.log('Flux AI processing completed successfully');
+      console.log('Processed image URL:', result.processedImageUrl ? 'Received' : 'Missing');
+      console.log('Number of regions:', result.regions?.length || 0);
+      console.log('Number of colors:', result.colors?.length || 0);
 
-      return {
-        processedImageUrl,
-        regions,
-        colors,
-        dimensions: {
-          width: 800,
-          height: 600
-        }
-      };
+      return result;
 
     } catch (error) {
-      console.error('AI processing error:', error);
+      console.error('Flux AI processing error:', error);
       
       // Provide fallback processing for development/demo
       if (import.meta.env.DEV) {
-        console.warn('Using fallback processing - AI service may be unavailable');
+        console.warn('Using fallback processing - Flux AI service may be unavailable');
         return this.getFallbackProcessing();
       }
       
@@ -294,7 +287,7 @@ export class AIProcessorService {
   }
 
   private getFallbackProcessing(): AIProcessingResult {
-    console.log('Using fallback processing - AI service may be unavailable');
+    console.log('Using fallback processing - Flux AI service may be unavailable');
     return {
       processedImageUrl: 'https://images.pexels.com/photos/1109541/pexels-photo-1109541.jpeg?auto=compress&cs=tinysrgb&w=800&h=600',
       regions: [
@@ -325,15 +318,12 @@ export class AIProcessorService {
    */
   async checkServiceHealth(): Promise<boolean> {
     try {
-      const response = await fetch(
-        "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${this.hfToken}`,
-          }
+      const response = await fetch(`${this.baseUrl}/process-paint-by-numbers`, {
+        method: 'OPTIONS',
+        headers: {
+          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
         }
-      );
+      });
       return response.ok;
     } catch {
       return false;
